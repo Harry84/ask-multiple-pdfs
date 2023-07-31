@@ -1,14 +1,18 @@
 import streamlit as st
+import qdrant_client
+import os
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
-from langchain.vectorstores import FAISS
+#from langchain.vectorstores import FAISS
+from langchain.vectorstores import Qdrant
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from htmlTemplates import css, bot_template, user_template
 from langchain.llms import HuggingFaceHub
+from qdrant_client.http import models
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -29,23 +33,35 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text)
     return chunks
 
+#nb changed below code to not take input text chunks as initialising from a pre-existing collection in Qdrant Cloud
+def get_vector_store():
+    #embeddings = OpenAIEmbeddings()
+    
+    #vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+    client = qdrant_client.QdrantClient(
+        os.getenv("QDRANT_HOST"),
+        api_key=os.getenv("QDRANT_API_KEY")
+    )
 
-def get_vectorstore(text_chunks):
-    embeddings = OpenAIEmbeddings()
-    # embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    return vectorstore
+    embeddings = HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-xl")
+
+    vector_store = Qdrant(
+    client=client, collection_name="instructor_collection", 
+    embeddings=embeddings,
+    )
+    return vector_store
 
 
-def get_conversation_chain(vectorstore):
-    llm = ChatOpenAI()
-    # llm = HuggingFaceHub(repo_id="google/flan-t5-xxl", model_kwargs={"temperature":0.5, "max_length":512})
+def get_conversation_chain(vector_store):
+    #llm = ChatOpenAI()
+    #llm = HuggingFaceHub(repo_id="meta-llama/Llama-2-7b-chat-hf", model_kwargs={"temperature":0.5, "max_length":512})
+    llm = HuggingFaceHub(repo_id="tiiuae/falcon-7b-instruct", model_kwargs={"temperature":0.1, "max_length":512})
 
     memory = ConversationBufferMemory(
         memory_key='chat_history', return_messages=True)
     conversation_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        retriever=vectorstore.as_retriever(),
+        retriever=vector_store.as_retriever(),
         memory=memory
     )
     return conversation_chain
@@ -93,11 +109,14 @@ def main():
                 text_chunks = get_text_chunks(raw_text)
 
                 # create vector store
-                vectorstore = get_vectorstore(text_chunks)
+                #vectorstore = get_vectorstore(text_chunks)
+                vector_store = get_vector_store()
 
                 # create conversation chain
+                #st.session_state.conversation = get_conversation_chain(
+                 #   vectorstore)
                 st.session_state.conversation = get_conversation_chain(
-                    vectorstore)
+                    vector_store)
 
 
 if __name__ == '__main__':

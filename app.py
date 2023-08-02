@@ -1,18 +1,24 @@
 import streamlit as st
 import qdrant_client
 import os
+#from flask import Flask, request
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
 #from langchain.vectorstores import FAISS
 from langchain.vectorstores import Qdrant
-from langchain.chat_models import ChatOpenAI
+#from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from htmlTemplates import css, bot_template, user_template
 from langchain.llms import HuggingFaceHub
-from qdrant_client.http import models
+#from qdrant_client.http import models
+import transformers
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+import torch
+from langchain import HuggingFacePipeline
+from datetime import datetime
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -53,9 +59,41 @@ def get_vector_store():
 
 
 def get_conversation_chain(vector_store):
+    #timestamp = []
+    #end = 0
+    #start = 0
+
     #llm = ChatOpenAI()
     #llm = HuggingFaceHub(repo_id="meta-llama/Llama-2-7b-chat-hf", model_kwargs={"temperature":0.5, "max_length":512})
-    llm = HuggingFaceHub(repo_id="tiiuae/falcon-7b-instruct", model_kwargs={"temperature":0.1, "max_length":512})
+    #llm = HuggingFaceHub(repo_id="tiiuae/falcon-7b-instruct", model_kwargs={"temperature":0.1, "max_length":512})
+    #start = datetime.now()
+    bartlfqa = os.path.join(os.path.dirname(__file__), 'bart_lfqa')
+    tokenizer = AutoTokenizer.from_pretrained(bartlfqa, trust_remote_code=True)
+    model = AutoModelForSeq2SeqLM.from_pretrained(bartlfqa)
+    #end = datetime.now()
+    #totaltime = (end - start).total_seconds()
+    #timestamp.append("time to load model from local folder" + str(totaltime))
+    #print(timestamp)
+    
+    pipe = pipeline(
+        "text2text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        min_length=64,
+        max_length=256,
+        repetition_penalty=1.15,
+        do_sample=False,
+        early_stopping=True,
+        num_beams=8,
+        temperature=0.3,
+        top_k=None,
+        top_p=None,
+        eos_token_id=tokenizer.eos_token_id,
+        no_repeat_ngram_size=3,
+        num_return_sequences=1
+    )
+
+    llm = HuggingFacePipeline(pipeline=pipe)
 
     memory = ConversationBufferMemory(
         memory_key='chat_history', return_messages=True)
